@@ -1,0 +1,62 @@
+name: 'RL Setup'
+description: 'Install RL prebuilt binaries (no Rust toolchain needed)'
+author: 'MohamedGonem'
+
+branding:
+  icon: 'download'
+  color: 'blue'
+
+inputs:
+  version:
+    description: 'RL version: latest, nightly, or vX.Y.Z (e.g. v2.2.0). Defaults to the latest stable release.'
+    required: false
+    default: 'latest'
+  binaries:
+    description: 'Comma-separated binaries to install (e.g. rl,rlc,rlt). Defaults to all.'
+    required: false
+    default: 'all'
+
+outputs:
+  install-dir:
+    description: 'Directory the binaries were installed into'
+    value: ${{ steps.install.outputs.install-dir || steps.install-win.outputs.install-dir }}
+  version:
+    description: 'Resolved version that was installed'
+    value: ${{ steps.install.outputs.version || steps.install-win.outputs.version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Cache RL install
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.os == 'Windows' && '%LOCALAPPDATA%\\rl-lang\\bin' || '~/.local/bin' }}
+        key: rl-${{ runner.os }}-${{ inputs.version }}-${{ inputs.binaries }}
+
+    - name: Install RL (Linux/macOS)
+      id: install
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        INSTALL_DIR="${RL_INSTALL_DIR:-$HOME/.local/bin}"
+        if ! command -v rl >/dev/null 2>&1; then
+          curl -fsSL https://raw.githubusercontent.com/rl-lang/rl-lang/main/install.sh -o /tmp/rl-install.sh
+          bash /tmp/rl-install.sh -b "${{ inputs.binaries }}" "${{ inputs.version }}"
+        fi
+        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
+        echo "install-dir=$INSTALL_DIR" >> "$GITHUB_OUTPUT"
+        echo "version=$(rl --version)" >> "$GITHUB_OUTPUT"
+
+    - name: Install RL (Windows)
+      id: install-win
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $installDir = if ($env:RL_INSTALL_DIR) { $env:RL_INSTALL_DIR } else { "$env:LOCALAPPDATA\rl-lang\bin" }
+        if (-not (Get-Command rl -ErrorAction SilentlyContinue)) {
+          Invoke-WebRequest https://raw.githubusercontent.com/rl-lang/rl-lang/main/install.ps1 -OutFile $env:TEMP/rl-install.ps1
+          & $env:TEMP/rl-install.ps1 -Binaries "${{ inputs.binaries }}" -Version "${{ inputs.version }}"
+        }
+        Add-Content -Path $env:GITHUB_PATH -Value $installDir
+        "install-dir=$installDir" >> $env:GITHUB_OUTPUT
+        "version=$(rl --version)" >> $env:GITHUB_OUTPUT
